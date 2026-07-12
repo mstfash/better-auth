@@ -9,7 +9,8 @@
 		// test utilities only imported by test files — invisible to --production
 		"packages/better-auth/src/client/test-plugin.ts",
 		// CI scripts used by GitHub Actions workflows, not by packages
-		".github/scripts/**"
+		".github/scripts/**",
+		"scripts/authowl/**"
 	],
 	"ignoreBinaries": ["playwright", "changeset", "open", "remark", "tsx"],
 	// exports used only by tests — invisible to --production mode
