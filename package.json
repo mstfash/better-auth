@@ -8,6 +8,7 @@
     "url": "git+https://github.com/better-auth/better-auth.git"
   },
   "scripts": {
+    "authowl:artifacts": "node scripts/authowl/build-artifacts.mjs",
     "prepare": "lefthook install --reset-hooks-path",
     "build": "turbo build --filter=./packages/*",
     "dev": "turbo dev --filter=./packages/* --filter=!./packages/cli",
