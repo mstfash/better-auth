@@ -9,6 +9,7 @@
   },
   "scripts": {
     "authowl:artifacts": "node scripts/authowl/build-artifacts.mjs",
+    "authowl:artifacts:test": "node --test scripts/authowl/deterministic-tar.test.mjs",
     "prepare": "lefthook install --reset-hooks-path",
     "build": "turbo build --filter=./packages/*",
     "dev": "turbo dev --filter=./packages/* --filter=!./packages/cli",
