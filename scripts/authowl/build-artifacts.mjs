@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-	copyFileSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -13,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createDeterministicTarball } from "./deterministic-tar.mjs";
 
 const REQUIRED_NODE = "24.14.0";
 const REQUIRED_PNPM = "11.1.1";
@@ -160,20 +160,9 @@ function packPackage(
 		throw new Error(`Unresolved workspace dependency in ${expectedName}`);
 	}
 
-	const finalDirectory = join(
-		temporaryRoot,
-		`${expectedName.replaceAll("/", "-")}-final`,
-	);
-	mkdirSync(finalDirectory, { recursive: true });
-	run(
-		"pnpm",
-		["--dir", stagedPackage, "pack", "--pack-destination", finalDirectory],
-		root,
-		true,
-	);
-	const finalTarball = onlyTarball(finalDirectory);
-	const destination = join(outputDirectory, basename(finalTarball));
-	copyFileSync(finalTarball, destination);
+	const tarballName = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`;
+	const destination = join(outputDirectory, tarballName);
+	createDeterministicTarball(stagedPackage, destination);
 
 	return {
 		name: manifest.name,

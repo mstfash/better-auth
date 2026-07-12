@@ -42,6 +42,9 @@ jobs:
         with:
           node-version: 24.14.0
       - run: corepack enable
+      - name: Test deterministic archive writer
+        working-directory: better-auth
+        run: pnpm authowl:artifacts:test
       - name: Build AuthOwl artifacts twice
         working-directory: better-auth
         run: |
