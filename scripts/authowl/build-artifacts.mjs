@@ -26,6 +26,7 @@ const packages = [
 	["@better-auth/kysely-adapter", "packages/kysely-adapter"],
 	["@better-auth/memory-adapter", "packages/memory-adapter"],
 	["@better-auth/mongo-adapter", "packages/mongo-adapter"],
+	["@better-auth/oauth-provider", "packages/oauth-provider"],
 	["@better-auth/passkey", "packages/passkey"],
 	["@better-auth/prisma-adapter", "packages/prisma-adapter"],
 	["@better-auth/telemetry", "packages/telemetry"],

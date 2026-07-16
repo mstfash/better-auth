@@ -17,6 +17,7 @@ on:
       - "packages/kysely-adapter/**"
       - "packages/memory-adapter/**"
       - "packages/mongo-adapter/**"
+      - "packages/oauth-provider/**"
       - "packages/passkey/**"
       - "packages/prisma-adapter/**"
       - "packages/telemetry/**"
