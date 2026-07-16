@@ -142,6 +142,93 @@ export function resolveSessionAuthTime(value: unknown): Date | undefined {
 	);
 }
 
+/**
+ * Normalizes OAuth resource values into a non-empty string array.
+ */
+export function toResourceList(
+	value: string | string[] | undefined,
+): string[] | undefined {
+	if (typeof value === "string") return [value];
+	if (!value?.length) return undefined;
+	return value;
+}
+
+/**
+ * Normalizes audience values for JWT claims.
+ */
+export function toAudienceClaim(
+	audience: string | string[] | undefined,
+): string | string[] | undefined {
+	if (typeof audience === "string") return audience;
+	if (!audience?.length) return undefined;
+	return audience.length === 1 ? audience.at(0) : audience;
+}
+
+/**
+ * Applies an RFC 8707 resource request to an existing authorization grant.
+ * A token request may inherit or narrow a grant, but it may not widen one.
+ */
+export function resolveGrantedResources(
+	requested: string[] | undefined,
+	granted: string[] | undefined,
+):
+	| { success: true; resources: string[] | undefined }
+	| { success: false; resources: undefined } {
+	if (!requested) {
+		return { success: true, resources: granted };
+	}
+	if (!granted) {
+		return { success: true, resources: requested };
+	}
+	if (requested.every((resource) => granted.includes(resource))) {
+		return { success: true, resources: requested };
+	}
+	return { success: false, resources: undefined };
+}
+
+/**
+ * Checks the resource parameter, if provided,
+ * and returns either a valid audience or a tagged validation error.
+ */
+export function checkResource(
+	ctx: GenericEndpointContext,
+	opts: OAuthOptions<Scope[]>,
+	resource: string | string[] | undefined,
+	scopes: string[],
+) {
+	const normalizedResource = toResourceList(resource);
+	const audience = normalizedResource ? [...normalizedResource] : undefined;
+	if (audience) {
+		// Adds /userinfo to audience
+		const hasOpenId = scopes.includes("openid");
+		const baseUrl = ctx.context.baseURL;
+		const userInfoEndpoint = `${baseUrl}/oauth2/userinfo`;
+		if (hasOpenId && !audience.includes(userInfoEndpoint)) {
+			audience.push(userInfoEndpoint);
+		}
+		// Check valid audiences
+		const filteredValidAudiences = opts.validAudiences?.filter(
+			(aud) => aud.length,
+		);
+		const validAudiences = new Set(
+			filteredValidAudiences?.length ? filteredValidAudiences : [baseUrl],
+		);
+		if (hasOpenId) validAudiences.add(userInfoEndpoint);
+		for (const aud of audience) {
+			if (!validAudiences.has(aud)) {
+				return {
+					success: false,
+					error: "invalid_resource",
+				};
+			}
+		}
+	}
+	return {
+		success: true,
+		audience: toAudienceClaim(audience),
+	};
+}
+
 const cachedTrustedClients = new TTLCache<string, SchemaClient<Scope[]>>();
 
 export async function verifyOAuthQueryParams(

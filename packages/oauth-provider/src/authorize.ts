@@ -21,12 +21,14 @@ import type {
 } from "./types";
 
 import {
+	checkResource,
 	clientAllowsGrant,
 	getClient,
 	getJwtPlugin,
 	isPKCERequired,
 	parsePrompt,
 	storeToken,
+	toResourceList,
 } from "./utils";
 
 /**
@@ -383,6 +385,28 @@ export async function authorizeEndpoint(
 		}
 	}
 
+	// Bind RFC 8707 resource indicators to the authorization grant before any
+	// login or consent continuation is created.
+	const resourceResult = checkResource(
+		ctx,
+		opts,
+		query.resource,
+		requestedScopes,
+	);
+	if (!resourceResult.success) {
+		return handleRedirect(
+			ctx,
+			formatErrorURL(
+				query.redirect_uri,
+				"invalid_target",
+				"requested resource invalid",
+				query.state,
+				getIssuer(ctx, opts),
+			),
+		);
+	}
+	const requestedResources = toResourceList(query.resource) ?? [];
+
 	// Check for session
 	const session = await getSessionFromCtx(ctx);
 	if (!session || promptSet?.has("login") || promptSet?.has("create")) {
@@ -499,6 +523,7 @@ export async function authorizeEndpoint(
 			sessionId: session.session.id,
 			authTime: new Date(session.session.createdAt).getTime(),
 			referenceId,
+			resource: requestedResources,
 		});
 	}
 	const consent = await ctx.context.adapter.findOne<OAuthConsent<Scope[]>>({
@@ -541,6 +566,26 @@ export async function authorizeEndpoint(
 		});
 	}
 
+	const consentedResources = consent.resources ?? [];
+	if (
+		requestedResources.some(
+			(requestedResource) => !consentedResources.includes(requestedResource),
+		)
+	) {
+		if (promptNone) {
+			return redirectWithPromptNoneError(
+				ctx,
+				opts,
+				query,
+				"consent_required",
+				"End-User consent is required",
+			);
+		}
+		return redirectWithPromptCode(ctx, opts, "consent", {
+			sessionId: session.session.id,
+		});
+	}
+
 	return redirectWithAuthorizationCode(ctx, opts, {
 		query,
 		clientId: client.clientId,
@@ -548,6 +593,7 @@ export async function authorizeEndpoint(
 		sessionId: session.session.id,
 		authTime: new Date(session.session.createdAt).getTime(),
 		referenceId,
+		resource: requestedResources,
 	});
 }
 
@@ -576,6 +622,7 @@ async function redirectWithAuthorizationCode(
 		sessionId: string;
 		authTime: number;
 		referenceId?: string;
+		resource?: string[];
 	},
 ) {
 	const code = generateRandomString(32, "a-z", "A-Z", "0-9");
@@ -593,6 +640,7 @@ async function redirectWithAuthorizationCode(
 			sessionId: verificationValue?.sessionId,
 			referenceId: verificationValue.referenceId,
 			authTime: verificationValue.authTime,
+			resource: verificationValue.resource,
 		} satisfies VerificationValue),
 	};
 	await ctx.context.internalAdapter.createVerificationValue({
