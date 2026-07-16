@@ -7,6 +7,40 @@ import type { OAuthClient } from "../types/oauth";
 import { getClient, storeClientSecret } from "../utils";
 import { assertClientPrivileges } from "./privileges";
 
+type ClientManagementSession = Awaited<ReturnType<typeof getSessionFromCtx>>;
+type ClientManagementAction = "update" | "delete" | "rotate";
+type ClientManagementSettings = { trustedServer?: boolean };
+
+async function authorizeClientManagement(
+	ctx: GenericEndpointContext,
+	opts: OAuthOptions<Scope[]>,
+	session: ClientManagementSession,
+	action: ClientManagementAction,
+	trustedServer: boolean | undefined,
+): Promise<NonNullable<ClientManagementSession> | null> {
+	if (trustedServer) return null;
+	await assertClientPrivileges(ctx, session, opts, action);
+	if (!session) throw new APIError("UNAUTHORIZED");
+	return session;
+}
+
+async function assertClientOwner(
+	opts: OAuthOptions<Scope[]>,
+	session: NonNullable<ClientManagementSession>,
+	client: SchemaClient<Scope[]>,
+) {
+	if (client.userId) {
+		if (client.userId !== session.user.id) throw new APIError("UNAUTHORIZED");
+		return;
+	}
+	if (client.referenceId && opts.clientReference) {
+		if (client.referenceId !== (await opts.clientReference(session)))
+			throw new APIError("UNAUTHORIZED");
+		return;
+	}
+	throw new APIError("UNAUTHORIZED");
+}
+
 export async function getClientEndpoint(
 	ctx: GenericEndpointContext & { query: { client_id: string } },
 	opts: OAuthOptions<Scope[]>,
@@ -122,10 +156,16 @@ export async function getClientsEndpoint(
 export async function deleteClientEndpoint(
 	ctx: GenericEndpointContext & { body: { client_id: string } },
 	opts: OAuthOptions<Scope[]>,
+	settings: ClientManagementSettings = {},
 ) {
 	const session = await getSessionFromCtx(ctx);
-	await assertClientPrivileges(ctx, session, opts, "delete");
-	if (!session) throw new APIError("UNAUTHORIZED");
+	const ownerSession = await authorizeClientManagement(
+		ctx,
+		opts,
+		session,
+		"delete",
+		settings.trustedServer,
+	);
 
 	const clientId = ctx.body.client_id;
 	const trustedClient = opts.cachedTrustedClients?.has(clientId);
@@ -144,14 +184,7 @@ export async function deleteClientEndpoint(
 		});
 	}
 
-	if (client.userId) {
-		if (client.userId !== session.user.id) throw new APIError("UNAUTHORIZED");
-	} else if (client.referenceId && opts.clientReference) {
-		if (client.referenceId !== (await opts.clientReference(session)))
-			throw new APIError("UNAUTHORIZED");
-	} else {
-		throw new APIError("UNAUTHORIZED");
-	}
+	if (ownerSession) await assertClientOwner(opts, ownerSession, client);
 
 	await ctx.context.adapter.delete({
 		model: "oauthClient",
@@ -172,10 +205,16 @@ export async function updateClientEndpoint(
 		};
 	},
 	opts: OAuthOptions<Scope[]>,
+	settings: ClientManagementSettings = {},
 ) {
 	const session = await getSessionFromCtx(ctx);
-	await assertClientPrivileges(ctx, session, opts, "update");
-	if (!session) throw new APIError("UNAUTHORIZED");
+	const ownerSession = await authorizeClientManagement(
+		ctx,
+		opts,
+		session,
+		"update",
+		settings.trustedServer,
+	);
 
 	const clientId = ctx.body.client_id;
 	const trustedClient = opts.cachedTrustedClients?.has(clientId);
@@ -194,14 +233,7 @@ export async function updateClientEndpoint(
 		});
 	}
 
-	if (client.userId) {
-		if (client.userId !== session.user.id) throw new APIError("UNAUTHORIZED");
-	} else if (client.referenceId && opts.clientReference) {
-		if (client.referenceId !== (await opts.clientReference(session)))
-			throw new APIError("UNAUTHORIZED");
-	} else {
-		throw new APIError("UNAUTHORIZED");
-	}
+	if (ownerSession) await assertClientOwner(opts, ownerSession, client);
 
 	const updates = ctx.body.update as OAuthClient;
 	if (Object.keys(updates).length === 0) {
@@ -248,10 +280,16 @@ export async function updateClientEndpoint(
 export async function rotateClientSecretEndpoint(
 	ctx: GenericEndpointContext & { body: { client_id: string } },
 	opts: OAuthOptions<Scope[]>,
+	settings: ClientManagementSettings = {},
 ) {
 	const session = await getSessionFromCtx(ctx);
-	await assertClientPrivileges(ctx, session, opts, "rotate");
-	if (!session) throw new APIError("UNAUTHORIZED");
+	const ownerSession = await authorizeClientManagement(
+		ctx,
+		opts,
+		session,
+		"rotate",
+		settings.trustedServer,
+	);
 
 	const clientId = ctx.body.client_id;
 	const trustedClient = opts.cachedTrustedClients?.has(clientId);
@@ -270,14 +308,7 @@ export async function rotateClientSecretEndpoint(
 		});
 	}
 
-	if (client.userId) {
-		if (client.userId !== session.user.id) throw new APIError("UNAUTHORIZED");
-	} else if (client.referenceId && opts.clientReference) {
-		if (client.referenceId !== (await opts.clientReference(session)))
-			throw new APIError("UNAUTHORIZED");
-	} else {
-		throw new APIError("UNAUTHORIZED");
-	}
+	if (ownerSession) await assertClientOwner(opts, ownerSession, client);
 
 	if (client.public || !client.clientSecret) {
 		throw new APIError("BAD_REQUEST", {

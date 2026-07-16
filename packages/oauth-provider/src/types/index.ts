@@ -217,6 +217,17 @@ export interface OAuthOptions<
 		session?: Session & Record<string, unknown>;
 	}) => Awaitable<boolean | undefined>;
 	/**
+	 * Allow the provider's SERVER_ONLY admin endpoints to manage OAuth clients
+	 * without an end-user session.
+	 *
+	 * This is intended for platforms that authorize operators before calling
+	 * `auth.api.admin*OAuthClient`. It never changes the public client-management
+	 * endpoints, which continue to require a session and `clientPrivileges`.
+	 *
+	 * @default false
+	 */
+	serverOnlyClientManagement?: boolean;
+	/**
 	 * List default scopes when using the token endpoint's
 	 * grant type "client_credentials". This is used
 	 * only when oauthClients are stored in the database
