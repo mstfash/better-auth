@@ -18,6 +18,7 @@ import { verificationValueSchema } from "./types/zod";
 import { userNormalClaims } from "./userinfo";
 import {
 	basicToClientCredentials,
+	checkResource,
 	clientAllowsGrant,
 	decryptStoredClientSecret,
 	getJwtPlugin,
@@ -25,9 +26,12 @@ import {
 	isPKCERequired,
 	normalizeTimestampValue,
 	parseClientMetadata,
+	resolveGrantedResources,
 	resolveSessionAuthTime,
 	resolveSubjectIdentifier,
 	storeToken,
+	toAudienceClaim,
+	toResourceList,
 	validateClientCredentials,
 } from "./utils";
 
@@ -77,6 +81,7 @@ async function createJwtAccessToken(
 	client: SchemaClient<Scope[]>,
 	audience: string | string[],
 	scopes: string[],
+	resources?: string[],
 	referenceId?: string,
 	overrides?: {
 		iat?: number;
@@ -90,7 +95,7 @@ async function createJwtAccessToken(
 		? await opts.customAccessTokenClaims({
 				user,
 				scopes,
-				resource: ctx.body.resource,
+				resources,
 				referenceId,
 				metadata: parseClientMetadata(client.metadata),
 			})
@@ -104,12 +109,7 @@ async function createJwtAccessToken(
 		payload: {
 			...customClaims,
 			sub: user?.id,
-			aud:
-				typeof audience === "string"
-					? audience
-					: audience?.length === 1
-						? audience.at(0)
-						: audience,
+			aud: toAudienceClaim(audience),
 			azp: client.clientId,
 			scope: scopes.join(" "),
 			sid: overrides?.sid,
@@ -243,6 +243,7 @@ async function createOpaqueAccessToken(
 	client: SchemaClient<Scope[]>,
 	scopes: string[],
 	payload: JWTPayload,
+	resources?: string[],
 	referenceId?: string,
 	refreshId?: string,
 ) {
@@ -259,6 +260,7 @@ async function createOpaqueAccessToken(
 			sessionId: payload?.sid,
 			userId: user?.id,
 			referenceId,
+			resources,
 			refreshId,
 			scopes,
 			createdAt: new Date(iat * 1000),
@@ -328,6 +330,7 @@ async function createRefreshToken(
 	payload: JWTPayload,
 	originalRefresh?: OAuthRefreshToken<Scope[]> & { id: string },
 	authTime?: Date,
+	resources?: string[],
 ) {
 	const iat = payload.iat ?? Math.floor(Date.now() / 1000);
 	const exp = payload?.exp ?? iat + (opts.refreshTokenExpiresIn ?? 2592000);
@@ -348,6 +351,7 @@ async function createRefreshToken(
 		referenceId,
 		authTime,
 		scopes,
+		resources,
 		createdAt: new Date(iat * 1000),
 		expiresAt: new Date(exp * 1000),
 	};
@@ -414,50 +418,6 @@ async function createRefreshToken(
 	};
 }
 
-/**
- * Checks the resource parameter, if provided,
- * and returns a valid audience based on the request
- */
-async function checkResource(
-	ctx: GenericEndpointContext,
-	opts: OAuthOptions<Scope[]>,
-	scopes: string[],
-) {
-	const resource: string | string[] | undefined = ctx.body.resource;
-	const audience =
-		typeof resource === "string"
-			? [resource]
-			: resource
-				? [...resource]
-				: undefined;
-	if (audience) {
-		// Adds /userinfo to audience
-		if (scopes.includes("openid")) {
-			audience.push(`${ctx.context.baseURL}/oauth2/userinfo`);
-		}
-		// Check valid audiences
-		const validAudiences = new Set(
-			[
-				...(opts.validAudiences ?? [ctx.context.baseURL]),
-				scopes?.includes("openid")
-					? `${ctx.context.baseURL}/oauth2/userinfo`
-					: undefined,
-			]
-				.flat()
-				.filter((v) => v?.length),
-		);
-		for (const aud of audience) {
-			if (!validAudiences.has(aud)) {
-				throw new APIError("BAD_REQUEST", {
-					error_description: "requested resource invalid",
-					error: "invalid_request",
-				});
-			}
-		}
-	}
-	return audience?.length === 1 ? audience.at(0) : audience;
-}
-
 interface CreateUserTokensParams {
 	client: SchemaClient<Scope[]>;
 	scopes: string[];
@@ -469,6 +429,9 @@ interface CreateUserTokensParams {
 	refreshToken?: OAuthRefreshToken<Scope[]> & { id: string };
 	authTime?: Date;
 	verificationValue?: VerificationValue;
+	resources?: string[];
+	/** The full resource set authorized for the grant before token narrowing. */
+	originalResources?: string[];
 }
 
 async function createUserTokens(
@@ -506,8 +469,14 @@ async function createUserTokens(
 				}, defaultExp)
 		: defaultExp;
 
-	// Check requested audience if sent as the resource parameter
-	const audience = await checkResource(ctx, opts, scopes);
+	const resourceResult = checkResource(ctx, opts, params.resources, scopes);
+	if (!resourceResult.success) {
+		throw new APIError("BAD_REQUEST", {
+			error_description: "requested resource invalid",
+			error: "invalid_target",
+		});
+	}
+	const audience = resourceResult.audience;
 	// Only mint a refresh token when the client may use refresh tokens.
 	// Otherwise an `offline_access` scope alone would hand a refresh token to a
 	// pure machine-to-machine client that was never authorized for one.
@@ -530,6 +499,14 @@ async function createUserTokens(
 			})
 		: undefined;
 
+	// A narrowed access-token request must not narrow the refresh token's
+	// authorization grant. Future refreshes may choose any resource originally
+	// authorized, but can never widen beyond that set.
+	const refreshResources =
+		params.refreshToken?.resources ??
+		params.originalResources ??
+		params.resources;
+
 	// Refresh token may need to be created beforehand for id field
 	const earlyRefreshToken =
 		isRefreshToken && user && !isJwtAccessToken
@@ -547,6 +524,7 @@ async function createUserTokens(
 					},
 					existingRefreshToken,
 					authTime,
+					refreshResources,
 				)
 			: undefined;
 
@@ -560,6 +538,7 @@ async function createUserTokens(
 					client,
 					audience,
 					scopes,
+					params.resources,
 					referenceId,
 					{
 						iat,
@@ -578,6 +557,7 @@ async function createUserTokens(
 						exp,
 						sid: sessionId,
 					},
+					params.resources,
 					referenceId,
 					earlyRefreshToken?.id,
 				),
@@ -598,6 +578,7 @@ async function createUserTokens(
 						},
 						existingRefreshToken,
 						authTime,
+						refreshResources,
 					)
 				: undefined,
 		isIdToken && user
@@ -641,6 +622,7 @@ async function checkVerificationValue(
 	code: string,
 	client_id: string,
 	redirect_uri?: string,
+	resource?: string[],
 ) {
 	// Atomic single-use redemption per RFC 6749 §4.1.2. The first caller
 	// receives the row and mints tokens; concurrent racers receive `null`
@@ -692,7 +674,22 @@ async function checkVerificationValue(
 		});
 	}
 
-	return verificationValue;
+	const storedResources =
+		toResourceList(verificationValue.resource) ??
+		toResourceList(verificationValue.query.resource);
+	const resourceGrant = resolveGrantedResources(resource, storedResources);
+	if (!resourceGrant.success) {
+		throw new APIError("BAD_REQUEST", {
+			error_description: "requested resource not authorized",
+			error: "invalid_target",
+		});
+	}
+
+	return {
+		verificationValue,
+		effectiveResources: resourceGrant.resources,
+		authorizedResources: storedResources,
+	};
 }
 
 /**
@@ -708,13 +705,16 @@ async function handleAuthorizationCodeGrant(
 		code,
 		code_verifier,
 		redirect_uri,
+		resource,
 	}: {
 		client_id?: string;
 		client_secret?: string;
 		code?: string;
 		code_verifier?: string;
 		redirect_uri?: string;
+		resource?: string | string[];
 	} = ctx.body;
+	const resources = toResourceList(resource);
 	const authorization = ctx.request?.headers.get("authorization") || null;
 
 	// Convert basic authorization
@@ -754,13 +754,15 @@ async function handleAuthorizationCodeGrant(
 	}
 
 	/** Get and check Verification Value */
-	const verificationValue = await checkVerificationValue(
-		ctx,
-		opts,
-		code,
-		client_id,
-		redirect_uri,
-	);
+	const { verificationValue, effectiveResources, authorizedResources } =
+		await checkVerificationValue(
+			ctx,
+			opts,
+			code,
+			client_id,
+			redirect_uri,
+			resources,
+		);
 	const scopes = verificationValue.query.scope?.split(" ");
 	if (!scopes) {
 		throw new APIError("INTERNAL_SERVER_ERROR", {
@@ -894,6 +896,8 @@ async function handleAuthorizationCodeGrant(
 		nonce: verificationValue.query?.nonce,
 		authTime,
 		verificationValue,
+		resources: effectiveResources,
+		originalResources: authorizedResources,
 	});
 }
 
@@ -911,11 +915,14 @@ async function handleClientCredentialsGrant(
 		client_id,
 		client_secret,
 		scope,
+		resource,
 	}: {
 		client_id?: string;
 		client_secret?: string;
 		scope?: string;
+		resource?: string | string[];
 	} = ctx.body;
+	const resources = toResourceList(resource);
 	const authorization = ctx.request?.headers.get("authorization") || null;
 
 	// Convert basic authorization
@@ -981,6 +988,7 @@ async function handleClientCredentialsGrant(
 		client,
 		scopes: requestedScopes,
 		grantType: "client_credentials",
+		resources,
 	});
 }
 
@@ -999,12 +1007,15 @@ async function handleRefreshTokenGrant(
 		client_secret,
 		refresh_token,
 		scope,
+		resource,
 	}: {
 		client_id?: string;
 		client_secret?: string;
 		refresh_token?: string;
 		scope?: string;
+		resource?: string | string[];
 	} = ctx.body;
+	const resources = toResourceList(resource);
 
 	const authorization = ctx.request?.headers.get("authorization") || null;
 
@@ -1075,6 +1086,17 @@ async function handleRefreshTokenGrant(
 		});
 	}
 
+	const resourceGrant = resolveGrantedResources(
+		resources,
+		refreshToken.resources,
+	);
+	if (!resourceGrant.success) {
+		throw new APIError("BAD_REQUEST", {
+			error_description: "requested resource invalid",
+			error: "invalid_target",
+		});
+	}
+
 	// Check session scopes
 	const scopes = refreshToken?.scopes;
 	const requestedScopes = scope?.split(" ");
@@ -1123,6 +1145,7 @@ async function handleRefreshTokenGrant(
 		referenceId: refreshToken.referenceId,
 		sessionId: refreshToken.sessionId,
 		refreshToken,
+		resources: resourceGrant.resources,
 		authTime,
 	});
 }

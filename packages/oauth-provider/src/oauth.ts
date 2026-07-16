@@ -33,7 +33,7 @@ import { revokeEndpoint } from "./revoke";
 import { schema } from "./schema";
 import { tokenEndpoint } from "./token";
 import type { OAuthOptions, Scope } from "./types";
-import { SafeUrlSchema } from "./types/zod";
+import { ResourceUriSchema, SafeUrlSchema } from "./types/zod";
 import { userInfoEndpoint } from "./userinfo";
 import {
 	getJwtPlugin,
@@ -279,6 +279,9 @@ export const oauthProvider = <O extends OAuthOptions<Scope[]>>(options: O) => {
 				code_challenge: z.string().optional(),
 				code_challenge_method: z.enum(["S256"]).optional(),
 				nonce: z.string().optional(),
+				resource: z
+					.union([ResourceUriSchema, z.array(ResourceUriSchema).min(1)])
+					.optional(),
 				prompt: z
 					.enum([
 						"none",
@@ -358,6 +361,14 @@ export const oauthProvider = <O extends OAuthOptions<Scope[]>>(options: O) => {
 							required: false,
 							schema: { type: "string" },
 							description: "OpenID Connect nonce",
+						},
+						{
+							name: "resource",
+							in: "query",
+							required: false,
+							schema: { type: "array", items: { type: "string" } },
+							description:
+								"Requested token resource(s) (audience). May be supplied multiple times as repeated resource query parameters.",
 						},
 						{
 							name: "prompt",
@@ -750,7 +761,9 @@ export const oauthProvider = <O extends OAuthOptions<Scope[]>>(options: O) => {
 						code_verifier: z.string().optional(),
 						redirect_uri: SafeUrlSchema.optional(),
 						refresh_token: z.string().optional(),
-						resource: z.string().optional(),
+						resource: z
+							.union([ResourceUriSchema, z.array(ResourceUriSchema).min(1)])
+							.optional(),
 						scope: z.string().optional(),
 					}),
 					metadata: {
@@ -803,9 +816,19 @@ export const oauthProvider = <O extends OAuthOptions<Scope[]>>(options: O) => {
 														"Refresh token (for refresh_token grant)",
 												},
 												resource: {
-													type: "string",
+													oneOf: [
+														{
+															type: "string",
+															description: "Single resource URL",
+														},
+														{
+															type: "array",
+															items: { type: "string" },
+															description: "Multiple resource URLs",
+														},
+													],
 													description:
-														"Requested token resource (ie audience) to obtain a JWT formatted access token",
+														"Requested token resource(s) used as the access-token audience",
 												},
 												scope: {
 													type: "string",
@@ -924,11 +947,6 @@ export const oauthProvider = <O extends OAuthOptions<Scope[]>>(options: O) => {
 													enum: ["access_token", "refresh_token"],
 													description:
 														"Hint about the type of the token submitted for introspection",
-												},
-												resource: {
-													type: "string",
-													description:
-														"Introspects a token for a specific resource.",
 												},
 											},
 											required: ["token"],
