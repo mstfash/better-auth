@@ -1499,7 +1499,10 @@ export const oauthProvider = <O extends OAuthOptions<Scope[]>>(options: O) => {
 			getOAuthClients: oauthClientEndpoints.getOAuthClients(opts),
 			adminUpdateOAuthClient: oauthClientEndpoints.adminUpdateOAuthClient(opts),
 			updateOAuthClient: oauthClientEndpoints.updateOAuthClient(opts),
+			adminRotateClientSecret:
+				oauthClientEndpoints.adminRotateClientSecret(opts),
 			rotateClientSecret: oauthClientEndpoints.rotateClientSecret(opts),
+			adminDeleteOAuthClient: oauthClientEndpoints.adminDeleteOAuthClient(opts),
 			deleteOAuthClient: oauthClientEndpoints.deleteOAuthClient(opts),
 			getOAuthConsent: oauthConsentEndpoints.getOAuthConsent(opts),
 			getOAuthConsents: oauthConsentEndpoints.getOAuthConsents(opts),

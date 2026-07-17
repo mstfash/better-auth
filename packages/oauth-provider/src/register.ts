@@ -201,6 +201,7 @@ export async function createOAuthClientEndpoint(
 	opts: OAuthOptions<Scope[]>,
 	settings: {
 		isRegister: boolean;
+		trustedServer?: boolean;
 	},
 ) {
 	const body = ctx.body as OAuthClient;
@@ -213,12 +214,14 @@ export async function createOAuthClientEndpoint(
 	// constrains that path to public clients, so it is authorized only when a
 	// session is present. Every other creation route requires an authorized
 	// session; assertClientPrivileges throws when none is present.
-	if (settings.isRegister) {
-		if (session) {
+	if (!settings.trustedServer) {
+		if (settings.isRegister) {
+			if (session) {
+				await assertClientPrivileges(ctx, session, opts, "create");
+			}
+		} else {
 			await assertClientPrivileges(ctx, session, opts, "create");
 		}
-	} else {
-		await assertClientPrivileges(ctx, session, opts, "create");
 	}
 
 	// Determine whether registration request for public client

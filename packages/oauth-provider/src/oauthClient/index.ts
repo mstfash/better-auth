@@ -221,6 +221,7 @@ export const adminCreateOAuthClient = (opts: OAuthOptions<Scope[]>) =>
 		async (ctx) => {
 			return createOAuthClientEndpoint(ctx, opts, {
 				isRegister: false,
+				trustedServer: opts.serverOnlyClientManagement,
 			});
 		},
 	);
@@ -540,6 +541,7 @@ export const adminUpdateOAuthClient = (opts: OAuthOptions<Scope[]>) =>
 						.optional(),
 					skip_consent: z.boolean().optional(),
 					enable_end_session: z.boolean().optional(),
+					disabled: z.boolean().optional(),
 					metadata: z.record(z.string(), z.unknown()).optional(),
 				}),
 			}),
@@ -551,7 +553,9 @@ export const adminUpdateOAuthClient = (opts: OAuthOptions<Scope[]>) =>
 			},
 		},
 		async (ctx) => {
-			return updateClientEndpoint(ctx, opts);
+			return updateClientEndpoint(ctx, opts, {
+				trustedServer: opts.serverOnlyClientManagement,
+			});
 		},
 	);
 
@@ -621,6 +625,28 @@ export const rotateClientSecret = (opts: OAuthOptions<Scope[]>) =>
 		},
 	);
 
+export const adminRotateClientSecret = (opts: OAuthOptions<Scope[]>) =>
+	createAuthEndpoint(
+		"/admin/oauth2/client/rotate-secret",
+		{
+			method: "POST",
+			body: z.object({
+				client_id: z.string(),
+			}),
+			metadata: {
+				SERVER_ONLY: true,
+				openapi: {
+					description: "Rotates a confidential OAuth2 client's secret.",
+				},
+			},
+		},
+		async (ctx) => {
+			return rotateClientSecretEndpoint(ctx, opts, {
+				trustedServer: opts.serverOnlyClientManagement,
+			});
+		},
+	);
+
 export const deleteOAuthClient = (opts: OAuthOptions<Scope[]>) =>
 	createAuthEndpoint(
 		"/oauth2/delete-client",
@@ -638,5 +664,27 @@ export const deleteOAuthClient = (opts: OAuthOptions<Scope[]>) =>
 		},
 		async (ctx) => {
 			return deleteClientEndpoint(ctx, opts);
+		},
+	);
+
+export const adminDeleteOAuthClient = (opts: OAuthOptions<Scope[]>) =>
+	createAuthEndpoint(
+		"/admin/oauth2/delete-client",
+		{
+			method: "POST",
+			body: z.object({
+				client_id: z.string(),
+			}),
+			metadata: {
+				SERVER_ONLY: true,
+				openapi: {
+					description: "Deletes an OAuth2 client.",
+				},
+			},
+		},
+		async (ctx) => {
+			return deleteClientEndpoint(ctx, opts, {
+				trustedServer: opts.serverOnlyClientManagement,
+			});
 		},
 	);
