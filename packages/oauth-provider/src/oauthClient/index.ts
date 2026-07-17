@@ -522,7 +522,7 @@ export const adminUpdateOAuthClient = (opts: OAuthOptions<Scope[]>) =>
 					software_id: z.string().optional(),
 					software_version: z.string().optional(),
 					software_statement: z.string().optional(),
-					post_logout_redirect_uris: z.array(SafeUrlSchema).min(1).optional(),
+					post_logout_redirect_uris: z.array(SafeUrlSchema).optional(),
 					// NOTE: token_endpoint_auth_method is currently immutable since it changes isPublic definition
 					grant_types: z
 						.array(
@@ -579,7 +579,7 @@ export const updateOAuthClient = (opts: OAuthOptions<Scope[]>) =>
 					software_id: z.string().optional(),
 					software_version: z.string().optional(),
 					software_statement: z.string().optional(),
-					post_logout_redirect_uris: z.array(SafeUrlSchema).min(1).optional(),
+					post_logout_redirect_uris: z.array(SafeUrlSchema).optional(),
 					// NOTE: token_endpoint_auth_method is currently immutable since it changes isPublic definition
 					grant_types: z
 						.array(
