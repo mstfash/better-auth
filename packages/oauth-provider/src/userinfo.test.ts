@@ -174,7 +174,30 @@ describe("oauth userinfo", async () => {
 				},
 			},
 		);
-		expect(userinfo.error?.status).toBe(400);
+		expect(userinfo.error?.status).toBe(403);
+	});
+
+	it("should return the bearer invalid_token error for an invalid access token", async () => {
+		try {
+			await auth.api.oauth2UserInfo({
+				headers: new Headers({
+					authorization: "cross-tenant-or-revoked-token",
+				}),
+			});
+			expect.unreachable();
+		} catch (error) {
+			const err = error as APIError;
+			expect({
+				status: err.statusCode,
+				body: err.body,
+			}).toMatchObject({
+				status: 401,
+				body: {
+					error: "invalid_token",
+					error_description: "Invalid access token",
+				},
+			});
+		}
 	});
 
 	it("should pass provide all user information - opaque", async () => {
