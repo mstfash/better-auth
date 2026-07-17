@@ -1,6 +1,6 @@
 import type { GenericEndpointContext } from "@better-auth/core";
-import { APIError } from "better-auth/api";
 import type { User } from "better-auth/types";
+import { APIError } from "better-call";
 import { validateAccessToken } from "./introspect";
 import type { OAuthOptions, Scope } from "./types";
 import { getClient, resolveSubjectIdentifier } from "./utils";
@@ -30,6 +30,20 @@ export function userNormalClaims(user: User, scopes: string[]) {
 	};
 }
 
+function invalidAccessToken(): APIError {
+	return new APIError("UNAUTHORIZED", {
+		error_description: "Invalid access token",
+		error: "invalid_token",
+	});
+}
+
+function insufficientOpenIdScope(): APIError {
+	return new APIError("FORBIDDEN", {
+		error_description: "Missing required openid scope",
+		error: "insufficient_scope",
+	});
+}
+
 /**
  * Handles the /oauth2/userinfo endpoint
  */
@@ -48,29 +62,27 @@ export async function userInfoEndpoint(
 			error: "invalid_request",
 		});
 	}
-	const jwt = await validateAccessToken(ctx, opts, token);
+	let jwt: Awaited<ReturnType<typeof validateAccessToken>>;
+	try {
+		jwt = await validateAccessToken(ctx, opts, token);
+	} catch (error) {
+		if (error instanceof APIError) throw invalidAccessToken();
+		throw error;
+	}
+	if (jwt.active !== true) throw invalidAccessToken();
 
 	const scopes = (jwt.scope as string | undefined)?.split(" ");
 	if (!scopes?.includes("openid")) {
-		throw new APIError("BAD_REQUEST", {
-			error_description: "Missing required scope",
-			error: "invalid_scope",
-		});
+		throw insufficientOpenIdScope();
 	}
 
 	if (!jwt.sub) {
-		throw new APIError("BAD_REQUEST", {
-			error_description: "user not found",
-			error: "invalid_request",
-		});
+		throw invalidAccessToken();
 	}
 
 	const user = await ctx.context.internalAdapter.findUserById(jwt.sub);
 	if (!user) {
-		throw new APIError("BAD_REQUEST", {
-			error_description: "user not found",
-			error: "invalid_request",
-		});
+		throw invalidAccessToken();
 	}
 
 	const baseUserClaims = userNormalClaims(user, scopes ?? []);
