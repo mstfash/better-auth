@@ -66,6 +66,14 @@ describe("server-only OAuth client management", async () => {
 		});
 		expect(updated.client_secret).toBeUndefined();
 
+		const clearedLogoutRedirects = await auth.api.adminUpdateOAuthClient({
+			body: {
+				client_id: created.client_id,
+				update: { post_logout_redirect_uris: [] },
+			},
+		});
+		expect(clearedLogoutRedirects.post_logout_redirect_uris).toEqual([]);
+
 		const rotated = await auth.api.adminRotateClientSecret({
 			body: { client_id: created.client_id },
 		});
