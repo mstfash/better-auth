@@ -29,6 +29,7 @@ const packages = [
 	["@better-auth/oauth-provider", "packages/oauth-provider"],
 	["@better-auth/passkey", "packages/passkey"],
 	["@better-auth/prisma-adapter", "packages/prisma-adapter"],
+	["@better-auth/sso", "packages/sso"],
 	["@better-auth/telemetry", "packages/telemetry"],
 ];
 
